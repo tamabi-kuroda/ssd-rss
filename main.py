@@ -11,7 +11,6 @@ BASE_URL = 'https://sdd.tamabi.ac.jp'
 def scrape_dynamic_site():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # ユーザーエージェントを偽装してBot検知を回避
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
@@ -19,7 +18,7 @@ def scrape_dynamic_site():
         
         print("ページにアクセスしています...")
         page.goto(TARGET_URL)
-        page.wait_for_timeout(5000) # Wixの描画完了を待つ
+        page.wait_for_timeout(5000)
         
         html_content = page.content()
         browser.close()
@@ -35,18 +34,30 @@ def generate_rss(html_content):
     fg.description('演劇舞踊デザイン学科の最新情報')
     fg.language('ja')
 
-    # WixのRepeater要素（記事ブロック）を取得
     articles = soup.select('.wixui-repeater__item')
     print(f"取得した記事ブロック総数: {len(articles)}")
 
-    # 取得した記事ブロックのうち、上から10件だけをループ処理する
-    for article in articles[:10]:
+    # 1. 抽出した記事データを一時的に保存するリスト
+    extracted_items = []
+
+    for article in articles:
         title_tag = article.find('h2')
         date_tag = article.find('p')
         link_tag = article.find('a')
         
-        # 👇 画像タグ（img）を取得
+        # Wixの様々な画像タグに対応するための強化抽出ロジック
+        image_url = ""
         img_tag = article.find('img')
+        
+        if img_tag:
+            # 属性を複数チェックして最も可能性の高いURLを取得
+            if img_tag.has_attr('src') and "http" in img_tag['src']:
+                image_url = img_tag['src']
+            elif img_tag.has_attr('data-src') and "http" in img_tag['data-src']:
+                image_url = img_tag['data-src']
+            elif img_tag.has_attr('srcset'):
+                # srcsetの場合は最初のURLを取得
+                image_url = img_tag['srcset'].split(' ')[0]
 
         if title_tag and link_tag and date_tag:
             title_text = title_tag.get_text(strip=True)
@@ -56,45 +67,54 @@ def generate_rss(html_content):
             if link_url.startswith('/'):
                 link_url = BASE_URL + link_url
 
-            # 👇 画像URLの抽出
-            image_url = ""
-            if img_tag and img_tag.has_attr('src'):
-                image_url = img_tag['src']
-
-            # ログ確認用の出力
-            print("--------------------------------------------------")
-            print(f"【日付】: {date_text}")
-            print(f"【タイトル】: {title_text}")
-            print(f"【URL】: {link_url}")
-            print(f"【画像】: {image_url}")
-            print("--------------------------------------------------\n")
-
-            fe = fg.add_entry()
-            fe.id(link_url)
-            fe.title(title_text)
-            fe.link(href=link_url)
-            
-            # 👇 画像URLがある場合、RSSの仕様に合わせて画像を添付する
-            if image_url:
-                # 1. RSS標準のEnclosure（添付要素）として画像を追加
-                fe.enclosure(image_url, 0, 'image/jpeg')
-                # 2. RSSリーダーの画面で直接画像が見えるように、description（概要）にHTMLタグで画像を埋め込む
-                fe.description(f'<img src="{image_url}" style="max-width:100%;" /><br/><br/>{title_text}')
-            else:
-                fe.description(title_text)
-            
+            # 日付のパース
+            parsed_date = None
             try:
                 first_date = date_text.split('~')[0].split('〜')[0].strip()
                 dt = datetime.strptime(first_date.replace('.', '/').replace('-', '/'), '%Y/%m/%d')
                 jst = pytz.timezone('Asia/Tokyo')
-                fe.pubDate(jst.localize(dt))
+                parsed_date = jst.localize(dt)
             except ValueError:
                 pass
+                
+            # 日付が正しく取得できたものだけをリストに追加
+            if parsed_date:
+                extracted_items.append({
+                    'title': title_text,
+                    'link': link_url,
+                    'date_text': date_text,
+                    'date_obj': parsed_date,
+                    'image_url': image_url
+                })
+
+    # 2. 記事リストを「日付の新しい順（降順）」に並び替える
+    extracted_items.sort(key=lambda x: x['date_obj'], reverse=True)
+
+    # 3. 並び替えた上位10件だけをRSSフィードに追加する
+    for item in extracted_items[:10]:
+        print("--------------------------------------------------")
+        print(f"【日付】: {item['date_text']}")
+        print(f"【タイトル】: {item['title']}")
+        print(f"【URL】: {item['link']}")
+        print(f"【画像】: {item['image_url']}")
+        print("--------------------------------------------------\n")
+
+        fe = fg.add_entry()
+        fe.id(item['link'])
+        fe.title(item['title'])
+        fe.link(href=item['link'])
+        fe.pubDate(item['date_obj'])
+        
+        if item['image_url']:
+            fe.enclosure(item['image_url'], 0, 'image/jpeg')
+            fe.description(f'<img src="{item["image_url"]}" style="max-width:100%;" /><br/><br/>{item["title"]}')
+        else:
+            fe.description(item['title'])
 
     os.makedirs('public', exist_ok=True)
     fg.rss_file('public/rss.xml')
     print("RSSフィード（public/rss.xml）の生成が完了しました！")
-    
+
 if __name__ == "__main__":
     html = scrape_dynamic_site()
     generate_rss(html)
