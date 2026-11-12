@@ -1,0 +1,41 @@
+name: Generate RSS
+
+on:
+  schedule:
+    - cron: '0 23 * * *' # 毎日日本時間 朝8時に実行
+  workflow_dispatch: # 手動実行ボタン
+
+# GitHub Pagesへのデプロイ許可
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリのコードを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonのセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: ライブラリとPlaywrightブラウザのインストール
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Pythonスクリプトの実行（RSS生成）
+        run: python main.py
+
+      - name: GitHub Pages用にアップロード
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './public'
+
+      - name: GitHub Pagesへデプロイ（公開）
+        id: deployment
+        uses: actions/deploy-pages@v4
