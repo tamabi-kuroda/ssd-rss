@@ -41,12 +41,12 @@ def generate_rss(html_content):
 
     # 取得した記事ブロックのうち、上から10件だけをループ処理する
     for article in articles[:10]:
-        # タイトルは <h2> タグから取得
         title_tag = article.find('h2')
-        # 日付は <p> タグから取得
         date_tag = article.find('p')
-        # リンクは <a> タグ（moreボタン等）から取得
         link_tag = article.find('a')
+        
+        # 👇 画像タグ（img）を取得
+        img_tag = article.find('img')
 
         if title_tag and link_tag and date_tag:
             title_text = title_tag.get_text(strip=True)
@@ -56,11 +56,17 @@ def generate_rss(html_content):
             if link_url.startswith('/'):
                 link_url = BASE_URL + link_url
 
+            # 👇 画像URLの抽出
+            image_url = ""
+            if img_tag and img_tag.has_attr('src'):
+                image_url = img_tag['src']
+
             # ログ確認用の出力
             print("--------------------------------------------------")
             print(f"【日付】: {date_text}")
             print(f"【タイトル】: {title_text}")
             print(f"【URL】: {link_url}")
+            print(f"【画像】: {image_url}")
             print("--------------------------------------------------\n")
 
             fe = fg.add_entry()
@@ -68,17 +74,23 @@ def generate_rss(html_content):
             fe.title(title_text)
             fe.link(href=link_url)
             
+            # 👇 画像URLがある場合、RSSの仕様に合わせて画像を添付する
+            if image_url:
+                # 1. RSS標準のEnclosure（添付要素）として画像を追加
+                fe.enclosure(image_url, 0, 'image/jpeg')
+                # 2. RSSリーダーの画面で直接画像が見えるように、description（概要）にHTMLタグで画像を埋め込む
+                fe.description(f'<img src="{image_url}" style="max-width:100%;" /><br/><br/>{title_text}')
+            else:
+                fe.description(title_text)
+            
             try:
-                # 「2026.10.31~11.8」のように期間が書かれている場合は最初の開始日だけを切り取る
                 first_date = date_text.split('~')[0].split('〜')[0].strip()
                 dt = datetime.strptime(first_date.replace('.', '/').replace('-', '/'), '%Y/%m/%d')
                 jst = pytz.timezone('Asia/Tokyo')
                 fe.pubDate(jst.localize(dt))
             except ValueError:
-                # 日付の変換に失敗した場合は日付情報なしで登録する
                 pass
 
-    # 出力先を public ディレクトリに指定（GitHub Pages用）
     os.makedirs('public', exist_ok=True)
     fg.rss_file('public/rss.xml')
     print("RSSフィード（public/rss.xml）の生成が完了しました！")
