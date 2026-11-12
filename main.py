@@ -37,9 +37,10 @@ def generate_rss(html_content):
 
     # WixのRepeater要素（記事ブロック）を取得
     articles = soup.select('.wixui-repeater__item')
-    print(f"取得した記事ブロック数: {len(articles)}")
+    print(f"取得した記事ブロック総数: {len(articles)}")
 
-    for article in articles:
+    # 取得した記事ブロックのうち、上から10件だけをループ処理する
+    for article in articles[:10]:
         # タイトルは <h2> タグから取得
         title_tag = article.find('h2')
         # 日付は <p> タグから取得
