@@ -40,29 +40,27 @@ def generate_rss(html_content):
     print(f"取得した記事ブロック数: {len(articles)}")
 
     for article in articles:
-        # aタグ（moreボタンを除く）からタイトルとリンクを取得
-        title_tags = article.select('a:not(.wixui-button)')
-        link_tag = None
-        for tag in title_tags:
-            if tag.get_text(strip=True):
-                link_tag = tag
-                break
-                
-        # pタグから日付を取得
-        date_tags = article.select('p')
-        date_tag = None
-        for tag in date_tags:
-            if tag.get_text(strip=True):
-                date_tag = tag
-                break
+        # タイトルは <h2> タグから取得
+        title_tag = article.find('h2')
+        # 日付は <p> タグから取得
+        date_tag = article.find('p')
+        # リンクは <a> タグ（moreボタン等）から取得
+        link_tag = article.find('a')
 
-        if link_tag and date_tag:
-            title_text = link_tag.get_text(strip=True)
+        if title_tag and link_tag and date_tag:
+            title_text = title_tag.get_text(strip=True)
             link_url = link_tag['href']
             date_text = date_tag.get_text(strip=True)
             
             if link_url.startswith('/'):
                 link_url = BASE_URL + link_url
+
+            # ログ確認用の出力
+            print("--------------------------------------------------")
+            print(f"【日付】: {date_text}")
+            print(f"【タイトル】: {title_text}")
+            print(f"【URL】: {link_url}")
+            print("--------------------------------------------------\n")
 
             fe = fg.add_entry()
             fe.id(link_url)
@@ -70,17 +68,20 @@ def generate_rss(html_content):
             fe.link(href=link_url)
             
             try:
-                dt = datetime.strptime(date_text.replace('.', '/').replace('-', '/'), '%Y/%m/%d')
+                # 「2026.10.31~11.8」のように期間が書かれている場合は最初の開始日だけを切り取る
+                first_date = date_text.split('~')[0].split('〜')[0].strip()
+                dt = datetime.strptime(first_date.replace('.', '/').replace('-', '/'), '%Y/%m/%d')
                 jst = pytz.timezone('Asia/Tokyo')
                 fe.pubDate(jst.localize(dt))
             except ValueError:
+                # 日付の変換に失敗した場合は日付情報なしで登録する
                 pass
 
     # 出力先を public ディレクトリに指定（GitHub Pages用）
     os.makedirs('public', exist_ok=True)
     fg.rss_file('public/rss.xml')
     print("RSSフィード（public/rss.xml）の生成が完了しました！")
-
+    
 if __name__ == "__main__":
     html = scrape_dynamic_site()
     generate_rss(html)
